@@ -1,3 +1,9 @@
 __pycache__/
 logs/
 logs/out
+# earlier snapshots of train/cem_history.json and the aborted first run's log
+train/cem_history_run*.json
+train/cem_run1.txt
+viz/buckshot_lab.html
+train/params_run*.json
+train/*.txt

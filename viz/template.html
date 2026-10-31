@@ -1,0 +1,949 @@
+<meta charset="utf-8">
+<title>Buckshot Bot Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a ballistics-range logbook. One reading column; a sticky generation scrubber drives the
+   training sections, and a replay bench below shows single games decision by decision. */
+:root {
+  --bg: #f4f6f7;
+  --surface: #fcfcfb;
+  --ink: #0f1418;
+  --ink-2: #4b545d;
+  --muted: #7d868f;
+  --grid: #e3e6e9;
+  --axis: #c3c8cd;
+  --line: rgba(15, 20, 24, 0.10);
+  --brass: #9a6a14;
+  --brass-wash: rgba(154, 106, 20, 0.10);
+  --live: #e34948;
+  --blank: #2a78d6;
+  --s1: #2a78d6;
+  --s2: #eb6834;
+  --s3: #1baf7a;
+  --seq-lo: #cde2fb;
+  --seq-hi: #104281;
+  --font-display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1013; --surface: #161a1e; --ink: #eef1f3; --ink-2: #b6bec6; --muted: #858e97;
+    --grid: #252b30; --axis: #3a4148; --line: rgba(255, 255, 255, 0.10);
+    --brass: #d9a441; --brass-wash: rgba(217, 164, 65, 0.13);
+    --live: #e66767; --blank: #3987e5; --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+    --seq-lo: #1c2a3a; --seq-hi: #86b6ef;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1013; --surface: #161a1e; --ink: #eef1f3; --ink-2: #b6bec6; --muted: #858e97;
+  --grid: #252b30; --axis: #3a4148; --line: rgba(255, 255, 255, 0.10);
+  --brass: #d9a441; --brass-wash: rgba(217, 164, 65, 0.13);
+  --live: #e66767; --blank: #3987e5; --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+  --seq-lo: #1c2a3a; --seq-hi: #86b6ef;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font: 15px/1.55 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.wrap { max-width: 1080px; margin: 0 auto; padding-block: 28px 64px; display: grid; gap: 44px; }
+h1, h2 { font-family: var(--font-display); font-weight: 800; letter-spacing: 0.01em; text-wrap: balance; margin: 0; line-height: 1.02; text-transform: uppercase; }
+h1 { font-size: clamp(40px, 7vw, 72px); }
+h2 { font-size: clamp(26px, 3.6vw, 34px); }
+h3 { font-size: 15px; font-weight: 600; margin: 0; }
+p { margin: 0; max-width: 68ch; color: var(--ink-2); }
+.eyebrow { font: 500 12px/1 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--brass); }
+.mono { font-family: var(--font-mono); }
+.num { font-variant-numeric: tabular-nums; }
+section { display: grid; gap: 18px; min-width: 0; }
+.head { display: grid; gap: 8px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.muted { color: var(--muted); }
+small, .small { font-size: 12.5px; }
+
+/* hero */
+.hero { display: grid; gap: 18px; }
+.hero p { font-size: 17px; }
+.shells { display: flex; gap: 6px; align-items: center; }
+.shells i { width: 12px; height: 26px; border-radius: 3px 3px 2px 2px; display: block; }
+.shells i.l { background: var(--live); } .shells i.b { background: var(--blank); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 4px; align-content: start; }
+.tile .label { font-size: 12.5px; color: var(--ink-2); }
+.tile .value { font-size: 30px; font-weight: 600; line-height: 1.1; }
+.tile .delta { font-size: 12.5px; color: var(--muted); }
+.tile .delta b { color: var(--ink); font-weight: 600; }
+
+/* scrubber */
+.scrub { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 10px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.scrub label { font: 500 13px var(--font-mono); white-space: nowrap; }
+.scrub input[type=range] { flex: 1 1 220px; accent-color: var(--brass); min-width: 0; }
+button { font: 500 13px var(--font-body); color: var(--ink); background: var(--surface); border: 1px solid var(--axis); border-radius: 7px; padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--brass); }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+button.on { background: var(--brass-wash); border-color: var(--brass); }
+select { font: 13px var(--font-body); color: var(--ink); background: var(--surface); border: 1px solid var(--axis); border-radius: 7px; padding: 5px 8px; }
+
+/* loop */
+.loop { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; counter-reset: step; }
+.step { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 6px; align-content: start; position: relative; }
+.step::before { counter-increment: step; content: counter(step); font: 800 22px/1 var(--font-display); color: var(--brass); }
+.step h3 { font-size: 14px; }
+.step .big { font: 600 18px/1.2 var(--font-body); font-variant-numeric: tabular-nums; }
+.step p { font-size: 12.5px; }
+.step.flash { border-color: var(--brass); }
+@media (max-width: 820px) { .loop { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* charts */
+.chart { width: 100%; position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+.legend i.dot { width: 9px; height: 9px; border-radius: 50%; }
+.legend i.ring { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--brass); background: transparent; }
+svg text { fill: var(--muted); font: 11px var(--font-body); font-variant-numeric: tabular-nums; }
+svg text.ink { fill: var(--ink-2); }
+svg .gridline { stroke: var(--grid); stroke-width: 1; }
+svg .axis { stroke: var(--axis); stroke-width: 1; }
+svg .cursor { stroke: var(--brass); stroke-width: 1.5; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--axis); border-radius: 7px; padding: 7px 9px; font-size: 12px; line-height: 1.45; color: var(--ink); box-shadow: 0 4px 14px rgba(0,0,0,0.12); white-space: nowrap; z-index: 3; }
+.tip .k { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 13px; color: var(--ink-2); }
+
+/* parameter grid */
+.pgroup { display: grid; gap: 10px; }
+.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.pcard { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 10px 6px; min-width: 0; }
+.pcard .t { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.pcard .t b { font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.pcard .t span { font-family: var(--font-mono); color: var(--brass); }
+.pcard .d { font-size: 11.5px; color: var(--muted); line-height: 1.35; min-height: 2.7em; }
+
+/* replay */
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.table { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.seat { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; position: relative; }
+.seat.ours { border-color: var(--brass); box-shadow: inset 0 0 0 1px var(--brass); }
+.seat.acting::after { content: "TO ACT"; position: absolute; top: 9px; right: 10px; font: 500 10.5px var(--font-mono); letter-spacing: 0.08em; color: var(--brass); }
+.seat.dead { opacity: 0.45; }
+.seat .nm { font-weight: 600; font-size: 13.5px; }
+.seat .nm small { color: var(--muted); font-weight: 400; }
+.hp { display: flex; gap: 3px; }
+.hp i { width: 16px; height: 8px; border-radius: 2px; background: var(--grid); }
+.hp i.f { background: var(--s3); }
+.hp i.hit { background: var(--live); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font: 11px var(--font-mono); padding: 1px 6px; border-radius: 99px; border: 1px solid var(--line); color: var(--ink-2); }
+.chip.flag { border-color: var(--blank); color: var(--blank); }
+.gun { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.gun .sh { width: 14px; height: 30px; border-radius: 4px 4px 2px 2px; border: 1.5px solid var(--axis); background: transparent; display: grid; place-items: center; font: 600 10px var(--font-mono); color: var(--muted); }
+.gun .sh.l { background: var(--live); border-color: var(--live); }
+.gun .sh.b { background: var(--blank); border-color: var(--blank); }
+.gun .sh.spent { opacity: 0.35; }
+.gun .sh.next { outline: 2px solid var(--brass); outline-offset: 2px; }
+.narr { font-size: 15px; color: var(--ink); min-height: 1.6em; }
+.narr b { font-weight: 600; }
+.why { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 760px) { .why { grid-template-columns: 1fr; } }
+.ladder { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; counter-reset: rung; }
+.ladder li { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: baseline; padding: 5px 8px; border-radius: 6px; font-size: 13px; color: var(--muted); border: 1px solid transparent; }
+.ladder li::before { counter-increment: rung; content: counter(rung); font: 500 11px var(--font-mono); color: var(--muted); }
+.ladder li.passed { color: var(--ink-2); text-decoration: line-through; text-decoration-color: var(--axis); }
+.ladder li.fired { color: var(--ink); background: var(--brass-wash); border-color: var(--brass); font-weight: 500; }
+.ladder li.fired::before { color: var(--brass); }
+.ladder code { font-family: var(--font-mono); font-size: 11.5px; }
+.bars { display: grid; gap: 6px; }
+.bar { display: grid; grid-template-columns: 110px 1fr 52px; gap: 8px; align-items: center; font-size: 12.5px; }
+.bar .track { height: 10px; background: var(--grid); border-radius: 0 4px 4px 0; position: relative; overflow: hidden; }
+.bar .fill { position: absolute; inset: 0 auto 0 0; border-radius: 0 4px 4px 0; background: var(--s1); }
+.bar.top .fill { background: var(--brass); }
+.bar .v { font-family: var(--font-mono); text-align: right; color: var(--ink-2); white-space: nowrap; }
+.gauge { position: relative; height: 34px; margin-top: 4px; }
+.gauge .rail { position: absolute; left: 0; right: 0; top: 14px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--blank), var(--grid) 50%, var(--live)); opacity: 0.55; }
+.gauge .pin { position: absolute; top: 4px; width: 2px; height: 26px; transform: translateX(-1px); }
+.gauge .pin span { position: absolute; top: -16px; left: 50%; transform: translateX(-50%); font: 500 10.5px var(--font-mono); white-space: nowrap; }
+.callout { border-left: 3px solid var(--brass); padding: 6px 0 6px 12px; color: var(--ink-2); max-width: 70ch; }
+.callout b { color: var(--ink); }
+table.data { border-collapse: collapse; font-size: 12.5px; width: 100%; }
+table.data th, table.data td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+table.data th:first-child, table.data td:first-child { text-align: left; }
+.scroll { overflow-x: auto; }
+details summary { cursor: pointer; font-size: 13px; color: var(--ink-2); }
+.dumb { display: grid; gap: 9px; margin-top: 12px; }
+.drow { display: grid; grid-template-columns: minmax(120px, 230px) minmax(0, 1fr) auto; gap: 12px; align-items: center; font-size: 12.5px; }
+.dtrack { position: relative; height: 14px; }
+.dtrack::before { content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 1px; background: var(--grid); }
+.dline { position: absolute; top: 5px; height: 3px; background: var(--axis); border-radius: 2px; }
+.ddot { position: absolute; top: 2px; width: 10px; height: 10px; border-radius: 50%; transform: translateX(-5px); box-shadow: 0 0 0 2px var(--surface); }
+.dval { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
+.moments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.moments button { font-size: 12px; text-align: left; max-width: 100%; white-space: normal; }
+.moments .up, .moments .down { color: var(--ink); font-family: var(--font-mono); font-weight: 500; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="hero">
+    <div class="eyebrow">CSES Arcade RL Hackathon · Buckshot Roulette</div>
+    <h1>Buckshot Bot Lab</h1>
+    <div class="shells" aria-hidden="true"><i class="l"></i><i class="b"></i><i class="l"></i><i class="l"></i><i class="b"></i><i class="b"></i><i class="l"></i><i class="b"></i></div>
+    <p>How our bot learned to play. A hand-built decision ladder, sitting on an exact model of how the gun is loaded, gets its <span class="nkeys">39</span> weights tuned by the cross-entropy method. It trains in a league of baseline bots and frozen copies of itself. Scrub through the generations, then step through real games and see why each decision was made.</p>
+    <div class="tiles" id="tiles"></div>
+  </header>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">Why it can win</div>
+      <h2>The gun is not shuffled fairly</h2>
+      <p>The engine loads the gun by flipping a fair coin for each slot while both shell types remain, and then fills the rest with what's left. So the next shell is a 50/50 whenever both types are still in the gun, whatever the count says. It only becomes certain once one type runs out. Most bots assume the chance is lives ÷ shells. The chart compares both models against 130,000 real draws.</p>
+    </div>
+    <div class="grid2">
+      <div class="panel">
+        <h3>Predicted vs actual P(next shell is live)</h3>
+        <div class="legend" id="calLegend"></div>
+        <div class="chart" id="calChart"></div>
+      </div>
+      <div class="panel" style="display:grid;gap:14px;align-content:start">
+        <div id="calNote" class="callout"></div>
+        <div id="shotNote" class="callout"></div>
+        <details><summary>Calibration table</summary><div class="scroll" id="calTable"></div></details>
+      </div>
+    </div>
+  </section>
+
+  <div class="scrub" role="group" aria-label="Generation">
+    <button id="playGen" type="button">Play</button>
+    <label for="gen">Generation <span id="genLabel" class="num">0</span> / <span id="genMax" class="num">0</span></label>
+    <input id="gen" type="range" min="0" max="0" value="0">
+  </div>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">How the RL happens</div>
+      <h2>One generation of the cross-entropy method</h2>
+      <p>Every generation runs these five steps. The numbers below belong to the generation picked in the scrubber.</p>
+    </div>
+    <div class="loop" id="loop"></div>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">Learning curves</div>
+      <h2>Is it getting better?</h2>
+      <p>Fitness is placement points averaged over mixed 2, 3 and 4-player tables, scaled so a win is +1 and last place is −1. The league gets harder as frozen copies of the bot join it, so the training score levels off while the real skill keeps rising. The right-hand chart tracks the fixed yardstick: the same 600 seeded tables every generation.</p>
+    </div>
+    <div class="grid2">
+      <div class="panel">
+        <h3>Training fitness in the league</h3>
+        <div class="legend" id="fitLegend"></div>
+        <div class="chart" id="fitChart"></div>
+      </div>
+      <div class="panel">
+        <h3>Fixed benchmark, 4-player tables</h3>
+        <div class="legend" id="benchLegend"></div>
+        <div class="chart" id="benchChart"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>1-vs-1 win rate against each opponent (200 fixed duels each)</h3>
+      <div class="pgrid" id="duels" style="margin-top:10px"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">The search itself</div>
+      <h2>Candidates, elites and the sampling cloud</h2>
+      <p>Each dot is one of the 48 candidate bots in this generation, placed by two of its weights and shaded by its score. Ringed dots are the top 8 elites. The ellipses show the Gaussian the candidates were drawn from (1σ and 2σ). The arrow shows where the mean moves after refitting to the elites.</p>
+    </div>
+    <div class="panel" style="display:grid;gap:12px">
+      <div class="controls">
+        <label>x <select id="px"></select></label>
+        <label>y <select id="py"></select></label>
+        <div class="legend" id="popLegend"></div>
+      </div>
+      <div class="chart" id="popChart"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">What it learned</div>
+      <h2>All <span class="nkeys">39</span> weights over training</h2>
+      <p>Each line is the mean of the sampling distribution, and the band is ±1σ. A band narrowing to a thin line means the search is confident about that weight. The number in the corner is the value at the selected generation.</p>
+    </div>
+    <div id="params" style="display:grid;gap:22px"></div>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">How it goes for the win</div>
+      <h2>What winning looks like</h2>
+      <p id="winIntro"></p>
+    </div>
+    <div class="tiles" id="winTiles"></div>
+    <div class="grid2">
+      <div class="panel"><h3>Where it finishes in 4-player games</h3><div class="bars" id="placeBars" style="margin-top:10px"></div></div>
+      <div class="panel"><h3>How the wins happen</h3><div class="bars" id="howBars" style="margin-top:10px"></div><p class="small" id="howNote" style="margin-top:12px"></p></div>
+    </div>
+    <div class="panel">
+      <h3>Games it wins vs games it loses (average per game)</h3>
+      <div class="legend" id="wlLegend" style="margin-top:6px"></div>
+      <div class="dumb" id="wl"></div>
+    </div>
+    <div class="grid2">
+      <div class="panel"><h3>Who knocks it out when it loses</h3><div class="bars" id="deathBars" style="margin-top:10px"></div><p class="small" id="deathNote" style="margin-top:12px"></p></div>
+      <div class="panel"><h3>Win rate with this opponent at the table</h3><div class="bars" id="oppBars" style="margin-top:10px"></div><p class="small muted" style="margin-top:12px">4-player games; 25% would be an even share.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">What path it chooses</div>
+      <h2>Replay bench</h2>
+      <p>Real games played by the trained bot against the baseline league. At each of our decisions, the ladder shows which rules were checked and passed over and which one fired. You also see the bot's belief about the next shell and how it scored each target. Turn on <i>Reveal hidden shells</i> to see what nobody at the table knew.</p>
+    </div>
+    <div class="panel" style="display:grid;gap:14px">
+      <div class="tabs" id="gameTabs"></div>
+      <div class="controls">
+        <button type="button" id="prev">◀ Prev</button>
+        <button type="button" id="playRep">Play</button>
+        <button type="button" id="next">Next ▶</button>
+        <input id="step" type="range" min="0" max="0" value="0" style="flex:1 1 200px;accent-color:var(--brass);min-width:0" aria-label="Step">
+        <span class="mono num" id="stepLabel"></span>
+      </div>
+      <div class="controls">
+        <label><input type="checkbox" id="oursOnly" checked> Only our decisions</label>
+        <label><input type="checkbox" id="reveal"> Reveal hidden shells</label>
+      </div>
+      <div>
+        <h3>Our win chance through the game</h3>
+        <p class="small" style="margin-top:2px">Estimated at every step from 96 playouts. Each playout re-deals the shells nobody has seen, using the real loading rule, and plays the game out with the same bots. Click the line to jump to a step.</p>
+        <div class="chart" id="wpChart"></div>
+        <div class="moments" id="moments"></div>
+      </div>
+      <div class="narr" id="narr"></div>
+      <div class="table" id="tableView"></div>
+      <div>
+        <div class="small muted" id="gunInfo" style="margin-bottom:6px"></div>
+        <div class="gun" id="gun"></div>
+      </div>
+      <div class="why" id="why"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">Behaviour over many games</div>
+      <h2>Which rung fires, how often</h2>
+      <p id="rulesIntro"></p>
+    </div>
+    <div class="panel"><div class="bars" id="ruleBars"></div></div>
+  </section>
+
+  <footer class="small muted">Generated from <span class="mono">train/cem_history.json</span>, <span class="mono">viz/replays.json</span> and <span class="mono">viz/calibration.json</span> by <span class="mono">viz/build.py</span>.</footer>
+</div>
+
+<script>
+const H = /*HISTORY*/null;
+document.querySelectorAll(".nkeys").forEach((e) => (e.textContent = H.keys.length));
+const R = /*REPLAYS*/null;
+const C = /*CALIB*/null;
+
+const NS = "http://www.w3.org/2000/svg";
+const $ = (id) => document.getElementById(id);
+const G = H.gens;
+const last = G[G.length - 1];
+const fmt = (v, d = 2) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d);
+const pct = (v) => Math.round(v * 100) + "%";
+
+function el(tag, attrs = {}, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) {
+    const v = String(attrs[k]);
+    if ((k === "fill" || k === "stroke") && v.startsWith("var(")) e.style[k] = v;  // theme tokens stay live
+    else e.setAttribute(k, v);
+  }
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function h(tag, cls, html) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html !== undefined) e.innerHTML = html;
+  return e;
+}
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function niceTicks(lo, hi, n = 4) {
+  const span = hi - lo || 1, step0 = span / n, mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => span / s <= n) || 10 * mag;
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(10));
+  return out;
+}
+
+const PARAM_INFO = {
+  p_self: ["Shooting", "Shoot yourself when P(live) is below this"],
+  p_saw: ["Shooting", "Use saws on an uncertain shell at or above this P(live)"],
+  saw_nonlethal: ["Shooting", "Most saws spent on a live shot that cannot kill"],
+  coffee_rounds: ["Shooting", "Drink coffee when this few shells are left"],
+  juice_below: ["Shooting", "Drink juice while health is below this"],
+  t_health: ["Targeting", "Target score per point of target health"],
+  t_kill: ["Targeting", "Bonus when this shot can kill the target"],
+  t_saw: ["Targeting", "Per hand saw the target holds"],
+  t_mag: ["Targeting", "Per magnifying glass the target holds"],
+  t_next: ["Targeting", "Bonus if the target acts right after us"],
+  t_floated: ["Targeting", "Target already has to skip a turn"],
+  t_upg: ["Targeting", "Per upgrade of any kind the target holds"],
+  f_use: ["Pool floatie", "Use a floatie only when its best score beats this"],
+  f_next: ["Pool floatie", "Prefer the player who acts next"],
+  f_threat: ["Pool floatie", "Per saw + glass the player holds"],
+  f_health: ["Pool floatie", "Per point of the player's health"],
+  u_juice: ["Upgrade picks", "Base value of picking juice"],
+  u_coffee: ["Upgrade picks", "Base value of picking coffee"],
+  u_mag_glass: ["Upgrade picks", "Base value of picking a magnifying glass"],
+  u_pool_floatie: ["Upgrade picks", "Base value of picking a pool floatie"],
+  u_hand_saw: ["Upgrade picks", "Base value of picking a hand saw"],
+  h_juice: ["Upgrade picks", "Change per juice already held"],
+  h_coffee: ["Upgrade picks", "Change per coffee already held"],
+  h_mag_glass: ["Upgrade picks", "Change per glass already held"],
+  h_pool_floatie: ["Upgrade picks", "Change per floatie already held"],
+  h_hand_saw: ["Upgrade picks", "Change per saw already held"],
+  u_hurt: ["Upgrade picks", "Extra juice value per missing health"],
+  u_deny: ["Upgrade picks", "Bonus for a saw or glass some rival lacks"],
+  t_danger_health: ["Defence (when we have the lowest health)", "Target score per point of target health"],
+  t_divert: ["Defence (when we have the lowest health)", "Bonus for a hit that drops the target below us"],
+  f_danger: ["Defence (when we have the lowest health)", "Extra reason to throw a floatie"],
+  u_danger_juice: ["Defence (when we have the lowest health)", "Extra value of picking juice"],
+  u_danger_floatie: ["Defence (when we have the lowest health)", "Extra value of picking a floatie"],
+  mag_min_saws: ["Saw combos", "Use the glass only when holding at least this many saws"],
+  mag_keep: ["Saw combos", "...or when holding more than this many glasses"],
+  p_saw_lethal: ["Saw combos", "Stack saws on an uncertain shell when P(live) is at least this and it makes a kill"],
+  u_combo_saw: ["Saw combos", "Extra value of picking a saw while holding a glass"],
+  u_combo_mag: ["Saw combos", "Extra value of picking a glass while holding a saw"],
+  u_saw_reach: ["Saw combos", "Extra value of picking a saw while our saws can't yet one-shot the weakest rival"],
+  t_aims_us: ["Threat model (who shoots us next)", "Target bonus when we are this rival's lowest-health target"],
+  t_soon: ["Threat model (who shoots us next)", "Target bonus scaled by how soon this rival acts"],
+  t_lethal_us: ["Threat model (who shoots us next)", "Target bonus when this rival's saws + a live would kill us"],
+  f_aims_us: ["Threat model (who shoots us next)", "Floatie score when we are this rival's target"],
+  f_lethal_us: ["Threat model (who shoots us next)", "Floatie score when this rival could kill us"],
+};
+const UPS = ["juice", "coffee", "mag_glass", "pool_floatie", "hand_saw"];
+const UP_LABEL = { juice: "Juice", coffee: "Coffee", mag_glass: "Glass", pool_floatie: "Floatie", hand_saw: "Saw",
+  JUICE: "juice", COFFEE: "coffee", MAG_GLASS: "the magnifying glass", POOL_FLOATIE: "a pool floatie", HAND_SAW: "a hand saw" };
+
+/* ---------- shared tooltip ---------- */
+function tipFor(container) {
+  let t = container.querySelector(".tip");
+  if (!t) { t = h("div", "tip"); t.hidden = true; container.appendChild(t); }
+  return {
+    show(html, x, y) {
+      t.innerHTML = html; t.hidden = false;
+      const cw = container.clientWidth, tw = t.offsetWidth;
+      t.style.left = Math.max(0, Math.min(cw - tw, x + 12)) + "px";
+      t.style.top = Math.max(0, y - t.offsetHeight - 10) + "px";
+    },
+    hide() { t.hidden = true; },
+  };
+}
+
+/* ---------- line chart with cursor + crosshair ---------- */
+function lineChart(container, opts) {
+  const state = { cursor: 0 };
+  function draw() {
+    container.querySelectorAll("svg").forEach((s) => s.remove());
+    const W = Math.max(280, container.clientWidth), Hh = opts.height || 230;
+    const m = { l: 40, r: opts.rightPad || 56, t: 12, b: 26 };
+    const svg = el("svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": opts.label });
+    container.prepend(svg);
+    const xs = opts.x, n = xs.length;
+    const all = opts.series.flatMap((s) => s.values.concat(s.lo || [], s.hi || [])).filter((v) => v != null);
+    let lo = opts.yMin ?? Math.min(...all), hi = opts.yMax ?? Math.max(...all);
+    if (opts.pad !== false) { const p = (hi - lo) * 0.08 || 0.1; lo -= opts.yMin == null ? p : 0; hi += opts.yMax == null ? p : 0; }
+    const X = (i) => m.l + (n <= 1 ? 0 : (i / (n - 1)) * (W - m.l - m.r));
+    const Y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * (Hh - m.t - m.b);
+    for (const t of niceTicks(lo, hi, 4)) {
+      el("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), class: t === 0 ? "axis" : "gridline" }, svg);
+      el("text", { x: m.l - 6, y: Y(t) + 4, "text-anchor": "end" }, svg).textContent = opts.yFmt ? opts.yFmt(t) : t;
+    }
+    for (const t of niceTicks(xs[0], xs[n - 1], 5)) {
+      const i = xs.indexOf(t); if (i < 0) continue;
+      el("text", { x: X(i), y: Hh - 8, "text-anchor": "middle" }, svg).textContent = t;
+    }
+    for (const mk of opts.marks || []) {
+      const i = xs.indexOf(mk.x); if (i < 0) continue;
+      el("line", { x1: X(i), x2: X(i), y1: m.t, y2: Hh - m.b, class: "axis", "stroke-dasharray": "3 3" }, svg);
+      if (mk.label) el("text", { x: X(i) + 4, y: m.t + 9, class: "ink" }, svg).textContent = mk.label;
+    }
+    for (const s of opts.series) {
+      if (s.lo) {
+        let d = "";
+        s.hi.forEach((v, i) => (d += (i ? "L" : "M") + X(i) + "," + Y(v)));
+        for (let i = n - 1; i >= 0; i--) d += "L" + X(i) + "," + Y(s.lo[i]);
+        el("path", { d: d + "Z", fill: s.color, "fill-opacity": 0.12, stroke: "none" }, svg);
+      }
+      let d = "";
+      s.values.forEach((v, i) => { if (v != null) d += (d ? "L" : "M") + X(i) + "," + Y(v); });
+      el("path", { d, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round", "stroke-dasharray": s.dash || "" }, svg);
+      if (opts.endLabels !== false) {
+        const v = s.values[n - 1];
+        el("circle", { cx: X(n - 1), cy: Y(v), r: 4, fill: s.color, stroke: "var(--surface)", "stroke-width": 2 }, svg);
+        if (s.endLabel !== false) el("text", { x: X(n - 1) + 8, y: Y(v) + 4, class: "ink" }, svg).textContent = (opts.yFmt || ((x) => x.toFixed(2)))(v);
+      }
+    }
+    const cur = el("line", { class: "cursor", y1: m.t, y2: Hh - m.b }, svg);
+    const dots = opts.series.map((s) => el("circle", { r: 4, fill: s.color, stroke: "var(--surface)", "stroke-width": 2 }, svg));
+    const hair = el("line", { class: "gridline", y1: m.t, y2: Hh - m.b, visibility: "hidden" }, svg);
+    state.place = (i) => {
+      cur.setAttribute("x1", X(i)); cur.setAttribute("x2", X(i));
+      opts.series.forEach((s, k) => { dots[k].setAttribute("cx", X(i)); dots[k].setAttribute("cy", Y(s.values[i])); });
+    };
+    state.place(state.cursor);
+    const tip = tipFor(container);
+    const hit = el("rect", { x: m.l, y: 0, width: W - m.l - m.r, height: Hh, fill: "transparent" }, svg);
+    hit.addEventListener("pointermove", (ev) => {
+      const r = svg.getBoundingClientRect(), sx = ((ev.clientX - r.left) / r.width) * W;
+      const i = Math.max(0, Math.min(n - 1, Math.round(((sx - m.l) / (W - m.l - m.r)) * (n - 1))));
+      hair.setAttribute("x1", X(i)); hair.setAttribute("x2", X(i)); hair.setAttribute("visibility", "visible");
+      const rows = opts.series.map((s) => `<div><span class="k" style="background:${s.color}"></span>${s.name}: <b class="num">${(opts.yFmt || ((x) => x.toFixed(3)))(s.values[i])}</b></div>`).join("");
+      tip.show(`<div class="muted">${opts.xName || "Generation"} ${xs[i]}</div>${rows}`, (X(i) / W) * r.width, (m.t / Hh) * r.height + 40);
+    });
+    hit.addEventListener("pointerleave", () => { tip.hide(); hair.setAttribute("visibility", "hidden"); });
+    hit.addEventListener("click", (ev) => {
+      if (!opts.onPick) return;
+      const r = svg.getBoundingClientRect(), sx = ((ev.clientX - r.left) / r.width) * W;
+      opts.onPick(Math.max(0, Math.min(n - 1, Math.round(((sx - m.l) / (W - m.l - m.r)) * (n - 1)))));
+    });
+  }
+  draw();
+  return { draw, setCursor(i) { state.cursor = i; state.place && state.place(i); } };
+}
+function legend(target, items) {
+  target.innerHTML = items.map((it) => `<span><i class="${it.kind || ""}" style="background:${it.color}"></i>${it.name}</span>`).join("");
+}
+
+/* ---------- hero tiles ---------- */
+function tiles() {
+  const s = H.start.bench, f = last.bench;
+  const games = G.length * H.config.pop * H.config.games;
+  const items = [
+    ["4-player score vs baselines", fmt(f["4p vs baselines"].pts), `from <b>${fmt(s["4p vs baselines"].pts)}</b> at the start`],
+    ["4-player win rate vs baselines", pct(f["4p vs baselines"].win), `from <b>${pct(s["4p vs baselines"].win)}</b>; 25% is chance`],
+    ["1v1 win rate vs the untrained bot", pct(f["1v1 v0"].win), "same code, hand-picked weights"],
+    ["Training games simulated", games.toLocaleString(), `${G.length} generations × ${H.config.pop} candidates × ${H.config.games.toLocaleString()} tables`],
+  ];
+  $("tiles").innerHTML = items.map(([l, v, d]) => `<div class="tile"><div class="label">${l}</div><div class="value">${v}</div><div class="delta">${d}</div></div>`).join("");
+}
+
+/* ---------- calibration ---------- */
+function calibration() {
+  const box = $("calChart");
+  legend($("calLegend"), [{ name: "Our model", color: "var(--brass)", kind: "dot" }, { name: "Naive lives ÷ shells", color: "var(--s2)", kind: "dot" }, { name: "Perfect calibration", color: "var(--axis)" }]);
+  function draw() {
+    box.querySelectorAll("svg").forEach((s) => s.remove());
+    const W = Math.max(280, box.clientWidth), Hh = Math.min(300, W * 0.8), m = { l: 38, r: 12, t: 10, b: 32 };
+    const svg = el("svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": "Calibration of next-shell predictions" });
+    box.prepend(svg);
+    const X = (v) => m.l + v * (W - m.l - m.r), Y = (v) => m.t + (1 - v) * (Hh - m.t - m.b);
+    for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+      el("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), class: "gridline" }, svg);
+      el("text", { x: m.l - 6, y: Y(t) + 4, "text-anchor": "end" }, svg).textContent = t;
+      el("text", { x: X(t), y: Hh - 14, "text-anchor": "middle" }, svg).textContent = t;
+    }
+    el("text", { x: (W + m.l) / 2, y: Hh - 1, "text-anchor": "middle" }, svg).textContent = "predicted";
+    el("line", { x1: X(0), y1: Y(0), x2: X(1), y2: Y(1), class: "axis", "stroke-dasharray": "4 4" }, svg);
+    const tip = tipFor(box);
+    for (const [key, color] of [["naive", "var(--s2)"], ["ours", "var(--brass)"]]) {
+      const pts = C[key].bins;
+      el("path", { d: pts.map((b, i) => (i ? "L" : "M") + X(b[0]) + "," + Y(b[1])).join(""), fill: "none", stroke: color, "stroke-width": 2 }, svg);
+      for (const b of pts) {
+        const c = el("circle", { cx: X(b[0]), cy: Y(b[1]), r: 4 + Math.min(4, Math.sqrt(b[2]) / 40), fill: color, stroke: "var(--surface)", "stroke-width": 2 }, svg);
+        c.addEventListener("pointerenter", () => tip.show(`${key === "ours" ? "Our model" : "Naive"} says <b>${b[0].toFixed(1)}</b><br>actually live <b>${pct(b[1])}</b><br><span class="muted">${b[2].toLocaleString()} predictions</span>`, (X(b[0]) / W) * box.clientWidth, (Y(b[1]) / Hh) * svg.getBoundingClientRect().height));
+        c.addEventListener("pointerleave", tip.hide);
+      }
+    }
+  }
+  draw();
+  $("calNote").innerHTML = `Mean squared error (Brier score) over ${(C.ours.bins.reduce((a, b) => a + b[2], 0)).toLocaleString()} draws: <b>${C.ours.brier.toFixed(3)}</b> for our model against <b>${C.naive.brier.toFixed(3)}</b> for the naive one. When the naive model says 0.2, the shell is really live about ${pct(C.naive.bins.find((b) => b[0] === 0.2)[1])} of the time.`;
+  const s = R.shots.naive_would_self;
+  $("shotNote").innerHTML = `In ${R.pool_games} recorded games our bot fired at an opponent <b>${s.n}</b> times where a naive bot would have turned the gun on itself. Those shells were live <b>${pct(s.live / s.n)}</b> of the time, so each of those shots is a coin flip landing on someone else.`;
+  const rows = C.ours.bins.map((b, i) => `<tr><td>${b[0].toFixed(1)}</td><td>${pct(b[1])}</td><td>${b[2].toLocaleString()}</td><td>${C.naive.bins[i] ? pct(C.naive.bins[i][1]) : "–"}</td><td>${C.naive.bins[i] ? C.naive.bins[i][2].toLocaleString() : "–"}</td></tr>`).join("");
+  $("calTable").innerHTML = `<table class="data"><thead><tr><th>Predicted</th><th>Ours: live</th><th>n</th><th>Naive: live</th><th>n</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return { draw };
+}
+
+/* ---------- the loop cards ---------- */
+function loopCards(gi) {
+  const g = G[gi], cfg = H.config;
+  const meanSig = Object.values(g.sampled_from.sigma).reduce((a, b) => a + b, 0) / H.keys.length;
+  const moved = H.keys.map((k) => [k, Math.abs(g.new_mean[k] - g.sampled_from.mean[k]) / (g.sampled_from.sigma[k] || 1)]).sort((a, b) => b[1] - a[1])[0];
+  const cards = [
+    ["Sample", `${cfg.pop} bots`, `Draw ${cfg.pop} weight vectors from a Gaussian over the ${H.keys.length} weights (mean σ ${meanSig.toFixed(2)}). Slot 1 is the current mean, kept as-is.`],
+    ["Play", `${(cfg.pop * cfg.games).toLocaleString()} games`, `Each candidate plays the same ${cfg.games.toLocaleString()} tables (same seeds, seats and opponents), so differences come from the weights, not luck.`],
+    ["Rank", `best ${fmt(g.best)}`, `Score = mean placement points. Population average ${fmt(g.pop_fit)}, top-${cfg.elite} average ${fmt(g.elite_fit)}.`],
+    ["Refit", `top ${cfg.elite} → new μ`, `The new mean is the elites' average, and σ shrinks toward their spread. The biggest move this generation: <span class="mono">${moved[0]}</span> (${moved[1].toFixed(1)}σ).`],
+    ["League", `${g.league_snapshots} self-copies`, g.snapshot_added ? "A frozen copy of this generation's mean joins the opponent pool, so later candidates have to beat it." : "Opponents: 4 baseline bots plus frozen earlier versions of our bot (one added every 3 generations)."],
+  ];
+  $("loop").innerHTML = cards.map(([t, b, p], i) => `<div class="step${i === 4 && g.snapshot_added ? " flash" : ""}"><h3>${t}</h3><div class="big">${b}</div><p>${p}</p></div>`).join("");
+}
+
+/* ---------- population scatter ---------- */
+function popChart() {
+  const box = $("popChart");
+  const keys = H.keys;
+  const px = $("px"), py = $("py");
+  for (const sel of [px, py]) keys.forEach((k) => sel.appendChild(new Option(k, k)));
+  // default axes: the two weights that moved furthest over training, in units of their initial σ
+  const travel = keys.map((k) => [k, Math.abs(last.new_mean[k] - H.start.mean[k]) / (H.start.sigma[k] || 1)]).sort((a, b) => b[1] - a[1]);
+  px.value = travel[0][0]; py.value = travel[1][0];
+  legend($("popLegend"), [{ name: "Candidate (stronger blue = higher score)", color: "var(--s1)", kind: "dot" }, { name: "Elite (top 8)", kind: "ring", color: "transparent" }, { name: "Sampling Gaussian, 1σ / 2σ", color: "var(--brass)" }]);
+  let gi = 0;
+  function mix(a, b, t) {
+    const pa = a.match(/\w\w/g).map((x) => parseInt(x, 16)), pb = b.match(/\w\w/g).map((x) => parseInt(x, 16));
+    return "rgb(" + pa.map((v, i) => Math.round(v + (pb[i] - v) * t)).join(",") + ")";
+  }
+  function draw() {
+    box.querySelectorAll("svg").forEach((s) => s.remove());
+    const g = G[gi], kx = px.value, ky = py.value, ix = keys.indexOf(kx), iy = keys.indexOf(ky);
+    const W = Math.max(280, box.clientWidth), Hh = Math.min(380, Math.max(260, W * 0.5)), m = { l: 44, r: 14, t: 12, b: 34 };
+    const svg = el("svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": `Population at generation ${gi}` });
+    box.prepend(svg);
+    // fixed axes across generations so motion is visible
+    // axes fit the sampling cloud (mean ± 2.5σ over all generations), fixed so the motion is visible;
+    // the odd candidate drawn further out is clipped at the frame
+    const span = (k) => {
+      const lo = Math.min(...G.map((gg) => gg.sampled_from.mean[k] - 2.5 * gg.sampled_from.sigma[k]));
+      const hi = Math.max(...G.map((gg) => gg.sampled_from.mean[k] + 2.5 * gg.sampled_from.sigma[k]));
+      return [lo, hi];
+    };
+    const [x0, x1] = span(kx), [y0, y1] = span(ky);
+    const X = (v) => m.l + ((v - x0) / (x1 - x0)) * (W - m.l - m.r), Y = (v) => m.t + (1 - (v - y0) / (y1 - y0)) * (Hh - m.t - m.b);
+    for (const t of niceTicks(y0, y1, 4)) { el("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), class: "gridline" }, svg); el("text", { x: m.l - 6, y: Y(t) + 4, "text-anchor": "end" }, svg).textContent = t; }
+    for (const t of niceTicks(x0, x1, 5)) { el("line", { y1: m.t, y2: Hh - m.b, x1: X(t), x2: X(t), class: "gridline" }, svg); el("text", { x: X(t), y: Hh - 18, "text-anchor": "middle" }, svg).textContent = t; }
+    el("text", { x: (W + m.l) / 2, y: Hh - 3, "text-anchor": "middle", class: "ink" }, svg).textContent = kx;
+    el("text", { x: 12, y: (Hh - m.b + m.t) / 2, "text-anchor": "middle", class: "ink", transform: `rotate(-90 12 ${(Hh - m.b + m.t) / 2})` }, svg).textContent = ky;
+    const mx = g.sampled_from.mean[kx], my = g.sampled_from.mean[ky], sx = g.sampled_from.sigma[kx], sy = g.sampled_from.sigma[ky];
+    const clipId = "popclip";
+    const cp = el("clipPath", { id: clipId }, el("defs", {}, svg));
+    el("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: Hh - m.t - m.b }, cp);
+    const layer = el("g", { "clip-path": `url(#${clipId})` }, svg);
+    for (const k of [2, 1]) {
+      el("ellipse", { cx: X(mx), cy: Y(my), rx: Math.abs(X(mx + k * sx) - X(mx)), ry: Math.abs(Y(my + k * sy) - Y(my)), fill: "var(--brass)", "fill-opacity": k === 1 ? 0.08 : 0.04, stroke: "var(--brass)", "stroke-width": 1.2, "stroke-dasharray": k === 2 ? "3 4" : "" }, layer);
+    }
+    const f = g.fitness, fmin = Math.min(...f), fmax = Math.max(...f), elite = new Set(g.elite);
+    const tip = tipFor(box);
+    const lo = css("--seq-lo"), hi = css("--seq-hi");
+    const order = f.map((_, i) => i).sort((a, b) => f[a] - f[b]);
+    for (const i of order) {
+      const p = g.population[i], t = (f[i] - fmin) / ((fmax - fmin) || 1);
+      const c = el("circle", { cx: X(p[ix]), cy: Y(p[iy]), r: elite.has(i) ? 6 : 4.5, fill: mix(lo, hi, 0.15 + 0.85 * t), stroke: elite.has(i) ? "var(--brass)" : "var(--surface)", "stroke-width": 2 }, layer);
+      c.addEventListener("pointerenter", () => tip.show(`Candidate ${i + 1}${i === 0 ? " (current mean)" : ""}${elite.has(i) ? " · <b>elite</b>" : ""}<br>score <b class="num">${fmt(f[i], 3)}</b><br>${kx} ${p[ix].toFixed(2)} · ${ky} ${p[iy].toFixed(2)}`, (X(p[ix]) / W) * box.clientWidth, (Y(p[iy]) / Hh) * svg.getBoundingClientRect().height));
+      c.addEventListener("pointerleave", tip.hide);
+    }
+    const nx = g.new_mean[kx], ny = g.new_mean[ky];
+    el("line", { x1: X(mx), y1: Y(my), x2: X(nx), y2: Y(ny), stroke: "var(--ink)", "stroke-width": 2, "marker-end": "url(#arr)" }, layer);
+    const mk = el("marker", { id: "arr", viewBox: "0 0 10 10", refX: 8, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" }, svg.querySelector("defs"));
+    el("path", { d: "M0,0 L10,5 L0,10 z", fill: "var(--ink)" }, mk);
+    el("circle", { cx: X(mx), cy: Y(my), r: 3, fill: "var(--ink)" }, layer);
+  }
+  px.addEventListener("change", draw); py.addEventListener("change", draw);
+  draw();
+  return { draw, set(i) { gi = i; draw(); } };
+}
+
+/* ---------- parameter small multiples ---------- */
+function paramGrid() {
+  const groups = {};
+  for (const k of H.keys) (groups[PARAM_INFO[k][0]] ||= []).push(k);
+  const charts = [];
+  const root = $("params");
+  const xs = [-1].concat(G.map((g) => g.gen));
+  for (const [name, keys] of Object.entries(groups)) {
+    const wrap = h("div", "pgroup");
+    wrap.appendChild(h("h3", "", name));
+    const grid = h("div", "pgrid");
+    wrap.appendChild(grid);
+    root.appendChild(wrap);
+    for (const k of keys) {
+      const card = h("div", "pcard");
+      card.innerHTML = `<div class="t"><b>${k}</b><span class="num" data-v></span></div><div class="d">${PARAM_INFO[k][1]}</div>`;
+      const box = h("div", "chart");
+      card.appendChild(box);
+      grid.appendChild(card);
+      const mean = [H.start.mean[k]].concat(G.map((g) => g.new_mean[k]));
+      const sig = [H.start.sigma[k]].concat(G.map((g) => g.new_sigma[k]));
+      const ch = lineChart(box, {
+        x: xs.map((_, i) => i), marks: RUNS.map((r) => ({ x: r.x + 1 })), height: 96, rightPad: 10, endLabels: false, label: k, xName: "After generation",
+        series: [{ name: k, color: "var(--s1)", values: mean, lo: mean.map((v, i) => v - sig[i]), hi: mean.map((v, i) => v + sig[i]) }],
+        yFmt: (v) => (Math.abs(v) >= 10 ? v.toFixed(0) : +v.toFixed(2)),
+      });
+      charts.push({ ch, card, mean });
+    }
+  }
+  return {
+    draw() { charts.forEach((c) => c.ch.draw()); },
+    set(gi) { charts.forEach((c) => { c.ch.setCursor(gi + 1); c.card.querySelector("[data-v]").textContent = c.mean[gi + 1].toFixed(2); }); },
+  };
+}
+
+/* ---------- training curves ---------- */
+const xsGen = G.map((g) => g.gen);
+const RUNS = (H.runs || []).map((r) => ({ x: r.from_gen, label: "resumed" }));
+let fitC, benchC, duelCs = [];
+function curves() {
+  const s1 = "var(--s1)", s2 = "var(--s2)", s3 = "var(--s3)";
+  legend($("fitLegend"), [{ name: "Best candidate", color: s2 }, { name: "Elite average", color: s1 }, { name: "Population average", color: s3 }]);
+  fitC = lineChart($("fitChart"), { x: xsGen, marks: RUNS, label: "Training fitness", onPick: setGen, yFmt: (v) => fmt(v), rightPad: 14, endLabels: false,
+    series: [{ name: "Best", color: s2, values: G.map((g) => g.best) }, { name: "Elite", color: s1, values: G.map((g) => g.elite_fit) }, { name: "Population", color: s3, values: G.map((g) => g.pop_fit) }] });
+  legend($("benchLegend"), [{ name: "vs 3 baseline bots", color: s1 }, { name: "vs 3 copies of the untrained bot", color: s2 }]);
+  benchC = lineChart($("benchChart"), { x: xsGen, marks: RUNS, label: "Benchmark score", onPick: setGen, yFmt: (v) => fmt(v),
+    series: [{ name: "vs baselines", color: s1, values: G.map((g) => g.bench["4p vs baselines"].pts) }, { name: "vs untrained", color: s2, values: G.map((g) => g.bench["4p vs v0"].pts) }] });
+  const duels = Object.keys(last.bench).filter((k) => k.startsWith("1v1 "));
+  const names = { "1v1 v0": "untrained bot (v0)", "1v1 random_bot": "random_bot", "1v1 naive_prob": "naive_prob", "1v1 aggressive": "aggressive", "1v1 cautious": "cautious" };
+  for (const d of duels) {
+    const card = h("div", "pcard");
+    card.innerHTML = `<div class="t"><b>vs ${names[d] || d.slice(4)}</b><span class="num" data-v></span></div>`;
+    const box = h("div", "chart");
+    card.appendChild(box);
+    $("duels").appendChild(card);
+    const vals = G.map((g) => g.bench[d].win);
+    const ch = lineChart(box, { x: xsGen, marks: RUNS.map((r) => ({ x: r.x })), height: 110, rightPad: 10, endLabels: false, label: d, yMin: 0, yMax: 1, pad: false, onPick: setGen,
+      series: [{ name: "win rate", color: "var(--s1)", values: vals }], yFmt: (v) => pct(v) });
+    duelCs.push({ ch, card, vals });
+  }
+}
+
+/* ---------- generation state ---------- */
+let pop, params, genTimer = null;
+function setGen(i) {
+  $("gen").value = i;
+  $("genLabel").textContent = i;
+  loopCards(i);
+  fitC.setCursor(i); benchC.setCursor(i);
+  duelCs.forEach((d) => { d.ch.setCursor(i); d.card.querySelector("[data-v]").textContent = pct(d.vals[i]); });
+  pop.set(i); params.set(i);
+}
+
+/* ---------- replay bench ---------- */
+const LADDER = [
+  ["juice", "Hurt, and holding juice → drink it", "<code>juice_below</code>"],
+  ["floatie", "A floatie target scores above the bar → make them skip", "<code>f_*</code>"],
+  ["mag", "Next shell uncertain → use the magnifying glass (if saws/glasses allow)", "<code>mag_min_saws</code>, <code>mag_keep</code>"],
+  ["coffee", "Uncertain and few shells left → coffee", "<code>coffee_rounds</code>"],
+  ["blank_self", "Next shell is certainly blank → shoot self, keep the turn", ""],
+  ["saw_gamble", "Uncertain, but saws make it a kill → stack a saw (all-in)", "<code>p_saw_lethal</code>"],
+  ["gamble_shoot", "All-in saws stacked → shoot the rival they kill", "<code>t_*</code>"],
+  ["saw", "Certain live → add a saw (toward a one-shot kill)", "<code>saw_nonlethal</code>"],
+  ["live_shoot", "Certain live → shoot the best target", "<code>t_*</code>"],
+  ["risky_self", "P(live) below threshold → shoot self", "<code>p_self</code>"],
+  ["shoot", "Otherwise → shoot the best-scoring opponent", "<code>t_*</code>"],
+];
+let game = 0, step = 0, repTimer = null;
+function ourSteps(g) { return g.steps.map((s, i) => (s.seat === g.ours ? i : -1)).filter((i) => i >= 0); }
+function who(g, seat) { return seat === g.ours ? "<b>Our bot</b>" : `<b>${g.names[seat]}</b> (P${seat})`; }
+function narrate(g, s) {
+  const a = s.action;
+  if (s.stage === "PICK_UPGRADE") return `${who(g, s.seat)} picks ${UP_LABEL[a.chosen_upgrade]} from the upgrade pool.`;
+  if (a.action === "USE_UPGRADE") {
+    if (a.useUpgrade === "POOL_FLOATIE") return `${who(g, s.seat)} throws a pool floatie at ${g.names[a.target]} (P${a.target}), who will skip their next turn.`;
+    return `${who(g, s.seat)} uses ${UP_LABEL[a.useUpgrade]}.`;
+  }
+  const self = a.target === s.seat, r = s.result;
+  const dmg = r ? r.damage[a.target] : 0;
+  const tgt = self ? "themself" : (a.target === g.ours ? "<b>our bot</b>" : `${g.names[a.target]} (P${a.target})`);
+  return `${who(g, s.seat)} shoots ${tgt}: ${r && r.live ? `<b style="color:var(--live)">live</b>, ${dmg} damage` : `<b style="color:var(--blank)">blank</b>${self ? ", keeps the turn" : ""}`}.`;
+}
+function renderStep() {
+  const g = R.games[game], s = g.steps[step], t = s.table;
+  $("step").max = g.steps.length - 1; $("step").value = step;
+  $("stepLabel").textContent = `step ${step + 1} / ${g.steps.length} · session ${t.session + 1}`;
+  $("narr").innerHTML = narrate(g, s);
+  if (wpC) wpC.setCursor(step);
+  const next = g.steps[step + 1];
+  $("tableView").innerHTML = g.names.map((n, i) => {
+    const hp = t.health[i], after = next ? next.table.health[i] : hp;
+    const pips = Array.from({ length: 5 }, (_, k) => `<i class="${k < Math.min(hp, after) ? "f" : k < hp ? "hit" : ""}"></i>`).join("");
+    const chips = UPS.map((u, k) => (t.upgrades[i][k] ? `<span class="chip">${UP_LABEL[u]} ×${t.upgrades[i][k]}</span>` : "")).join("") + (t.floatie[i] ? `<span class="chip flag">skips next turn</span>` : "");
+    const place = g.placements[i];
+    return `<div class="seat${i === g.ours ? " ours" : ""}${i === s.seat ? " acting" : ""}${hp <= 0 ? " dead" : ""}"><div class="nm">${i === g.ours ? "Our bot" : n} <small>P${i} · finished #${place}</small></div><div class="hp" aria-label="health ${hp}">${pips}</div><div class="chips">${chips || '<span class="small muted">no upgrades</span>'}</div></div>`;
+  }).join("");
+  const reveal = $("reveal").checked;
+  if (s.gun) {
+    const gun = s.gun, lives = gun.lives_init - gun.lives_shot, blanks = gun.blanks_init - gun.blanks_shot;
+    $("gunInfo").innerHTML = `Session ${t.session + 1}: the gun was loaded with ${gun.lives_init} live and ${gun.blanks_init} blank. ${gun.remaining} left in the chamber${gun.damage > 1 ? ` · <b>saw active: next live does ${gun.damage}</b>` : ""}.`;
+    $("gun").innerHTML = gun.sequence.map((v, i) => {
+      const spent = i < gun.next_index, show = spent || reveal;
+      return `<span class="sh ${show ? (v ? "l" : "b") : ""}${spent ? " spent" : ""}${i === gun.next_index ? " next" : ""}" title="shell ${i + 1}${show ? (v ? ": live" : ": blank") : ""}">${show ? "" : "?"}</span>`;
+    }).join("") + `<span class="small muted" style="margin-left:8px">faded = already fired or ejected · outlined = next</span>`;
+  } else {
+    $("gunInfo").innerHTML = `Upgrade picks between sessions. Pool left: ${UPS.map((u, k) => `${UP_LABEL[u]} ${s.available[k]}`).join(" · ")}`;
+    $("gun").innerHTML = "";
+  }
+  const why = $("why");
+  if (s.seat !== g.ours) {
+    why.innerHTML = `<div class="small muted">This is ${g.names[s.seat]}'s decision. We only see what it did, not why. Tick “Only our decisions” to jump between our bot's choices.</div>`;
+    return;
+  }
+  const w = s.why;
+  if (w.rule === "pick") {
+    const sc = Object.entries(w.pick_scores).sort((a, b) => b[1] - a[1]);
+    const lo = Math.min(0, ...sc.map((x) => x[1])), hi = Math.max(...sc.map((x) => x[1]));
+    why.innerHTML = `<div><h3>Upgrade pick scores</h3><p class="small" style="margin:4px 0 10px">score = base value + per-copy-held adjustment + juice × missing health + denial bonus. The top score gets picked.</p><div class="bars">${sc.map(([k, v], i) => `<div class="bar${i === 0 ? " top" : ""}"><span>${UP_LABEL[k]}</span><span class="track"><span class="fill" style="width:${(100 * (v - lo)) / ((hi - lo) || 1)}%"></span></span><span class="v">${v.toFixed(2)}</span></div>`).join("")}</div></div><div class="small muted">Weights behind these numbers: <span class="mono">u_*</span>, <span class="mono">h_*</span>, <span class="mono">u_hurt</span>, <span class="mono">u_deny</span>. All were learned by CEM (see “What it learned”).</div>`;
+    return;
+  }
+  const fired = LADDER.findIndex((r) => r[0] === w.rule);
+  const ladder = LADDER.map((r, i) => `<li class="${i < fired ? "passed" : i === fired ? "fired" : ""}"><span>${r[1]} ${r[2] ? `<span class="muted">${r[2]}</span>` : ""}</span></li>`).join("");
+  const truth = s.gun ? s.gun.next_live : null;
+  const pins = [[w.p_live, "ours", "var(--brass)"], [s.p_naive, "naive", "var(--s2)"]];
+  const gauge = `<div class="gauge">${'<div class="rail"></div>'}${pins.map(([v, l, c]) => `<div class="pin" style="left:${v * 100}%;background:${c}"><span style="color:${c}">${l} ${v.toFixed(2)}</span></div>`).join("")}</div><div class="small muted" style="display:flex;justify-content:space-between"><span>blank certain</span><span>coin flip</span><span>live certain</span></div>`;
+  const ts = Object.entries(w.target_scores);
+  const tlo = Math.min(...ts.map((x) => x[1]), 0), thi = Math.max(...ts.map((x) => x[1]), 0.01);
+  const best = ts.length ? ts.reduce((a, b) => (b[1] > a[1] ? b : a))[0] : null;
+  const hpNow = s.table.health, rivals = hpNow.filter((x, i) => i !== g.ours && x > 0);
+  const danger = rivals.length && hpNow[g.ours] <= Math.min(...rivals);
+  const tbars = ts.length ? `<h3 style="margin-top:14px">Target scores</h3>${danger ? `<p class="small" style="margin:4px 0 0"><b>Defence mode:</b> we have the lowest health, so focus-fire bots aim at us. The defence weights push the bot to hit the weakest rival and drop them below us.</p>` : ""}<div class="bars" style="margin-top:6px">${ts.map(([k, v]) => `<div class="bar${k === best ? " top" : ""}"><span>${g.names[+k]} P${k}</span><span class="track"><span class="fill" style="width:${(100 * (v - tlo)) / ((thi - tlo) || 1)}%"></span></span><span class="v">${v.toFixed(2)}</span></div>`).join("")}</div>` : "";
+  why.innerHTML = `<div><h3>Decision ladder (checked top to bottom)</h3><ol class="ladder" style="margin-top:8px">${ladder}</ol>${w.rule === "fallback" ? '<p class="small">Fell through to the safety fallback.</p>' : ""}</div>
+    <div><h3>Belief: P(next shell is live)</h3>${gauge}
+    <p class="small" style="margin-top:8px">${reveal && truth !== null ? `The next shell really is <b style="color:${truth ? "var(--live)" : "var(--blank)"}">${truth ? "live" : "blank"}</b>.` : "Tick “Reveal hidden shells” to see the truth."} ${w.saws_used ? `Saws already stacked this shot: ${w.saws_used}.` : ""}</p>${tbars}</div>`;
+}
+let wpC = null;
+function wpSeries(g) { return g.steps.map((s) => s.wp ? s.wp[0] : null).concat([g.end.wp ? g.end.wp[0] : null]); }
+function buildWin(g) {
+  const box = $("wpChart");
+  box.innerHTML = "";
+  const vals = wpSeries(g);
+  if (vals[0] == null) { wpC = null; $("moments").innerHTML = ""; return; }
+  wpC = lineChart(box, { x: vals.map((_, i) => i), height: 150, label: "Win chance", xName: "Step", yMin: 0, yMax: 1, pad: false,
+    endLabels: false, rightPad: 12, yFmt: (v) => pct(v), onPick: (i) => { step = Math.min(i, g.steps.length - 1); renderStep(); },
+    series: [{ name: "P(win)", color: "var(--brass)", values: vals }] });
+  const deltas = g.steps.map((s, i) => [i, vals[i + 1] - vals[i]]).filter((d) => !isNaN(d[1]));
+  const top = deltas.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 6).sort((a, b) => a[0] - b[0]);
+  const plain = (html) => { const d = document.createElement("div"); d.innerHTML = html; return d.textContent; };
+  $("moments").innerHTML = '<span class="small muted" style="align-self:center">Biggest swings:</span>' + top.map(([i, d]) =>
+    `<button type="button" data-step="${i}"><span class="${d > 0 ? "up" : "down"}">${d > 0 ? "▲" : "▼"} ${Math.round(Math.abs(d) * 100)} pts</span> · step ${i + 1}: ${plain(narrate(g, g.steps[i]))}</button>`).join("");
+  $("moments").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { step = +b.dataset.step; renderStep(); }));
+}
+function setGame(i) {
+  game = i;
+  document.querySelectorAll("#gameTabs button").forEach((b, k) => b.classList.toggle("on", k === i));
+  buildWin(R.games[i]);
+  step = $("oursOnly").checked ? ourSteps(R.games[i])[0] : 0;
+  renderStep();
+}
+function move(d) {
+  const g = R.games[game];
+  if ($("oursOnly").checked) {
+    const ours = ourSteps(g);
+    const cand = d > 0 ? ours.find((i) => i > step) : [...ours].reverse().find((i) => i < step);
+    if (cand === undefined) return false;
+    step = cand;
+  } else {
+    const n = step + d;
+    if (n < 0 || n >= g.steps.length) return false;
+    step = n;
+  }
+  renderStep();
+  return true;
+}
+function replay() {
+  R.games.forEach((g, i) => {
+    const b = h("button", "", `${g.label} <span class="muted">· ${g.placements[g.ours] === 1 ? "won" : "#" + g.placements[g.ours]}</span>`);
+    b.type = "button";
+    b.addEventListener("click", () => setGame(i));
+    $("gameTabs").appendChild(b);
+  });
+  $("prev").addEventListener("click", () => move(-1));
+  $("next").addEventListener("click", () => move(1));
+  $("step").addEventListener("input", (e) => { step = +e.target.value; renderStep(); });
+  $("reveal").addEventListener("change", renderStep);
+  $("oursOnly").addEventListener("change", () => { if ($("oursOnly").checked && R.games[game].steps[step].seat !== R.games[game].ours) move(1); });
+  $("playRep").addEventListener("click", () => {
+    if (repTimer) { clearInterval(repTimer); repTimer = null; $("playRep").textContent = "Play"; return; }
+    $("playRep").textContent = "Pause";
+    repTimer = setInterval(() => { if (!move(1)) { clearInterval(repTimer); repTimer = null; $("playRep").textContent = "Play"; } }, 1100);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.target.closest("input,select")) return;
+    if (e.key === "ArrowRight") move(1); else if (e.key === "ArrowLeft") move(-1);
+  });
+  setGame(0);
+}
+
+function rules() {
+  const labels = { pick: "Upgrade pick", shoot: "Shoot best opponent (uncertain)", blank_self: "Shoot self on a certain blank", juice: "Drink juice", live_shoot: "Shoot on a certain live", floatie: "Throw a pool floatie", mag: "Use magnifying glass", saw: "Add a hand saw", saw_gamble: "All-in saw on an uncertain shell", gamble_shoot: "All-in lethal shot", coffee: "Drink coffee", risky_self: "Shoot self (low P(live))", fallback: "Safety fallback" };
+  const rc = Object.entries(R.rule_counts).sort((a, b) => b[1] - a[1]);
+  const total = rc.reduce((a, b) => a + b[1], 0), max = rc[0][1];
+  $("rulesIntro").textContent = `All ${total.toLocaleString()} decisions our trained bot made across ${R.pool_games} recorded games (2, 3 and 4 players) against the baseline league.`;
+  $("ruleBars").innerHTML = rc.map(([k, v]) => `<div class="bar" style="grid-template-columns:minmax(120px,240px) 1fr auto"><span>${labels[k] || k}</span><span class="track"><span class="fill" style="width:${(100 * v) / max}%"></span></span><span class="v">${v.toLocaleString()} · ${((100 * v) / total).toFixed(1)}%</span></div>`).join("");
+}
+
+/* ---------- how it wins ---------- */
+function barRows(target, rows, max) {
+  target.innerHTML = rows.map(([label, v, shown, top]) => `<div class="bar${top ? " top" : ""}" style="grid-template-columns:minmax(110px,220px) 1fr auto"><span>${label}</span><span class="track"><span class="fill" style="width:${(100 * v) / (max || 1)}%"></span></span><span class="v">${shown}</span></div>`).join("");
+}
+function winSection() {
+  const S = R.stats, n = S.games_4p, wins = S.places[0];
+  $("winIntro").textContent = `${n.toLocaleString()} four-player games of the trained bot against the baseline league, with seats and opponents drawn at random. Every elimination, kill shot and decision was logged.`;
+  const tiles = [
+    ["4-player win rate", pct(wins / n), "25% would be an even share"],
+    ["Wins sealed by its own final shot", pct((S.win_how.final_kill || 0) / Math.max(1, wins)), "it pulls the trigger on the last rival"],
+    ["Opponents eliminated by our bot", pct(S.opp_eliminations.by_us / Math.max(1, S.opp_eliminations.total)), "of all opponent knockouts (a fair share is a third)"],
+    ["Its kills taken on a known live shell", pct(S.kills.certain / Math.max(1, S.kills.total)), `the rest (${pct(S.kills.coinflip / Math.max(1, S.kills.total))}) were 50/50 shots`],
+  ];
+  $("winTiles").innerHTML = tiles.map(([l, v, d]) => `<div class="tile"><div class="label">${l}</div><div class="value">${v}</div><div class="delta">${d}</div></div>`).join("");
+  barRows($("placeBars"), S.places.map((c, i) => [["1st", "2nd", "3rd", "4th"][i], c, `${pct(c / n)} · ${c}`, i === 0]), Math.max(...S.places));
+  const howL = { final_kill: "It fired the final kill", outlasted: "Rivals finished each other off", cap: "Action cap hit, it had the most health" };
+  const how = Object.entries(S.win_how).sort((a, b) => b[1] - a[1]);
+  barRows($("howBars"), how.map(([k, v], i) => [howL[k] || k, v, `${pct(v / wins)} · ${v}`, i === 0]), Math.max(...how.map((x) => x[1])));
+  const K = S.kills;
+  $("howNote").innerHTML = `Over these games it eliminated <b>${K.total}</b> opponents: <b>${K.certain}</b> with a shell it knew was live (magnifying glass, or blanks run out) and <b>${K.coinflip}</b> on a 50/50. <b>${K.with_saws}</b> of those kills used a hand saw. It averages <b>${K.per_game_won}</b> eliminations in games it wins and <b>${K.per_game_lost}</b> in games it loses.`;
+  legend($("wlLegend"), [{ name: "Won games", color: "var(--s1)", kind: "dot" }, { name: "Lost games", color: "var(--s2)", kind: "dot" }]);
+  $("wl").innerHTML = S.won_vs_lost.map((r) => {
+    const max = Math.max(r.won, r.lost, 0.01) * 1.1, a = (100 * r.won) / max, b = (100 * r.lost) / max;
+    return `<div class="drow"><span>${r.metric}</span><span class="dtrack"><span class="dline" style="left:${Math.min(a, b)}%;width:${Math.abs(a - b)}%"></span><span class="ddot" style="left:${b}%;background:var(--s2)"></span><span class="ddot" style="left:${a}%;background:var(--s1)"></span></span><span class="dval">${r.won} vs ${r.lost}</span></div>`;
+  }).join("");
+  const D = S.our_deaths, by = Object.entries(D.by).sort((a, b) => b[1] - a[1]);
+  barRows($("deathBars"), by.map(([k, v]) => [k === "self" ? "its own shot" : k, v, `${pct(v / D.total)} · ${v}`]), Math.max(...by.map((x) => x[1])));
+  const early = D.opponents_left["3"] || 0;
+  $("deathNote").innerHTML = `It was knocked out in <b>${D.total}</b> of ${n} games. <b>${pct(early / Math.max(1, D.total))}</b> of those exits came with all three rivals still alive, and <b>${D.sawed}</b> were hits boosted by a hand saw.`;
+  const opp = Object.entries(S.win_rate_with).sort((a, b) => b[1] - a[1]);
+  barRows($("oppBars"), opp.map(([k, v]) => [k, v, pct(v)]), 1);
+}
+
+/* ---------- boot ---------- */
+tiles();
+const cal = calibration();
+curves();
+pop = popChart();
+params = paramGrid();
+$("gen").max = G.length - 1; $("genMax").textContent = G.length - 1;
+$("gen").addEventListener("input", (e) => setGen(+e.target.value));
+$("playGen").addEventListener("click", () => {
+  if (genTimer) { clearInterval(genTimer); genTimer = null; $("playGen").textContent = "Play"; return; }
+  let i = +$("gen").value;
+  if (i >= G.length - 1) i = -1;
+  $("playGen").textContent = "Pause";
+  genTimer = setInterval(() => { i++; setGen(i); if (i >= G.length - 1) { clearInterval(genTimer); genTimer = null; $("playGen").textContent = "Play"; } }, 450);
+});
+setGen(G.length - 1);
+winSection();
+replay();
+rules();
+let rt;
+window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => {
+  cal.draw(); fitC.draw(); benchC.draw(); duelCs.forEach((d) => d.ch.draw()); pop.draw(); params.draw(); setGen(+$("gen").value);
+  if (wpC) { wpC.draw(); wpC.setCursor(step); }
+}, 150); });
+// the population shading mixes two theme colours in script, so redraw it when the theme flips
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => pop.draw());
+new MutationObserver(() => pop.draw()).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+</script>

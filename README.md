@@ -1,5 +1,24 @@
 # Buckshot Roulette RL Hackathon: game API and evaluation engine
 
+## Our submission
+
+- `my_bot/`: the submission (`bot.py` + trained `params.json`). Pure standard library, about 0.01 ms of
+  compute per decision.
+- `train/`: in-process simulator (`sim.py`), baseline opponents, and the cross-entropy-method trainer
+  (`cem.py`), plus tools for evaluation (`eval.py`, `compare.py`, `ablate.py`), belief calibration
+  (`test_belief.py`) and annotated replays (`replay.py`).
+- `viz/`: the training visualiser (`build.py` bakes the data into `buckshot_lab.html`).
+- `docs/STRATEGY.md`: the method and results.
+
+```bash
+python train/cem.py --gens 60                 # train from scratch (writes my_bot/params.json)
+python train/compare.py A.json B.json         # compare two weight sets on identical tables
+python train/replay.py && python viz/build.py # record replays and rebuild the visualiser
+train/engine.sh python -m engine.validate my_bot/ --backend docker   # engine on Windows, via Linux
+```
+
+The rest of this README is the organisers' original documentation.
+
 ## Arcade RL Hackathon by CSES NITW
 
 This repository is for the Arcade RL Hackathon organized by CSES, NIT Warangal (NITW). Use it to

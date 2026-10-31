@@ -1,0 +1,5 @@
+# Linux host for the evaluation engine (engine/bot_process.py uses select() on pipes, which Windows lacks).
+# Run with the Docker socket mounted so it can start the sandbox containers next to itself.
+FROM docker:27-cli AS cli
+FROM python:3.12-slim
+COPY --from=cli /usr/local/bin/docker /usr/local/bin/docker
